@@ -1,0 +1,216 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  EDITOR
+  COMMENTER
+  VIEWER
+}
+
+enum SystemRole {
+  USER
+  ADMIN
+}
+
+enum NotificationType {
+  SHARED
+  UNSHARED
+  MENTIONED
+  COMMENT_ON_OWNED
+}
+
+enum ResourceType {
+  FOLDER
+  DOCUMENT
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  REGISTER
+  VIEW
+  DOWNLOAD
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  UPLOAD_VERSION
+  SHARE
+  UNSHARE
+  COMMENT
+  PROMOTE
+  DEMOTE
+  DEACTIVATE
+  REACTIVATE
+  PASSWORD_RESET
+  PASSWORD_CHANGE
+}
+
+model User {
+  id             String     @id @default(uuid())
+  name           String
+  email          String     @unique
+  hashedPassword String
+  systemRole     SystemRole @default(USER)
+  deactivatedAt  DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  ownedFolders       Folder[]          @relation("FolderOwner")
+  ownedDocuments     Document[]        @relation("DocumentOwner")
+  documentVersions   DocumentVersion[] @relation("VersionCreatedBy")
+  permissions        Permission[]      @relation("PermissionUser")
+  grantedPermissions Permission[]      @relation("PermissionGrantedBy")
+  refreshTokens      RefreshToken[]
+  comments           Comment[]
+  auditLogs          AuditLog[]
+  notifications        Notification[] @relation("NotificationRecipient")
+  notificationsCaused  Notification[] @relation("NotificationActor")
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Folder {
+  id        String     @id @default(uuid())
+  name      String
+  parentId  String?
+  parent    Folder?    @relation("FolderChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Folder[]   @relation("FolderChildren")
+  ownerId   String
+  owner     User       @relation("FolderOwner", fields: [ownerId], references: [id])
+  documents Document[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  deletedAt DateTime?
+
+  @@index([parentId])
+  @@index([ownerId])
+  @@map("folders")
+}
+
+model Document {
+  id               String            @id @default(uuid())
+  name             String
+  ownerId          String
+  owner            User              @relation("DocumentOwner", fields: [ownerId], references: [id])
+  folderId         String?
+  folder           Folder?           @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  tags             String[]          @default([])
+  extractedText    String?
+  currentVersionId String?           @unique
+  currentVersion   DocumentVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  versions         DocumentVersion[] @relation("DocumentVersions")
+  comments         Comment[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  deletedAt        DateTime?
+
+  @@index([folderId])
+  @@index([ownerId])
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id            String   @id @default(uuid())
+  documentId    String
+  document      Document @relation("DocumentVersions", fields: [documentId], references: [id], onDelete: Cascade)
+  versionNumber Int
+  s3Key         String
+  size          Int
+  mimeType      String
+  createdById   String
+  createdBy     User     @relation("VersionCreatedBy", fields: [createdById], references: [id])
+  createdAt     DateTime @default(now())
+
+  currentFor Document? @relation("CurrentVersion")
+
+  @@unique([documentId, versionNumber])
+  @@map("document_versions")
+}
+
+model Permission {
+  id           String       @id @default(uuid())
+  resourceType ResourceType
+  resourceId   String
+  userId       String
+  user         User         @relation("PermissionUser", fields: [userId], references: [id], onDelete: Cascade)
+  role         Role
+  grantedById  String
+  grantedBy    User         @relation("PermissionGrantedBy", fields: [grantedById], references: [id])
+  createdAt    DateTime     @default(now())
+
+  @@unique([resourceType, resourceId, userId])
+  @@index([resourceType, resourceId])
+  @@index([userId])
+  @@map("permissions")
+}
+
+model Comment {
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  content    String
+  resolved   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([documentId])
+  @@map("comments")
+}
+
+model Notification {
+  id           String           @id @default(uuid())
+  userId       String
+  user         User             @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  type         NotificationType
+  message      String
+  resourceType ResourceType?
+  resourceId   String?
+  actorId      String?
+  actor        User?            @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  readAt       DateTime?
+  createdAt    DateTime         @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id           String        @id @default(uuid())
+  userId       String?
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action       AuditAction
+  resourceType ResourceType?
+  resourceId   String?
+  ipAddress    String?
+  metadata     Json?
+  createdAt    DateTime      @default(now())
+
+  @@index([resourceType, resourceId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

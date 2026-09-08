@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.next/
+out/
+build/
+*.log
+.env
+.env.local
+
+# Local MinIO binaries/data (downloaded by infra/minio/README.md, not source)
+infra/minio/minio.exe
+infra/minio/mc.exe
+infra/minio/data/
+infra/minio/.minio.sys/
